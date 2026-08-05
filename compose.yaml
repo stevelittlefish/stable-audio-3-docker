@@ -7,7 +7,7 @@ services:
     image: stable-audio-3-medium:local
     restart: unless-stopped
     ports:
-      - "7860:7860"
+      - "5335:5335"
     environment:
       HF_TOKEN: "${HF_TOKEN:?Set HF_TOKEN to a Hugging Face token with access to stabilityai/stable-audio-3-medium}"
       HF_HOME: /cache/huggingface
@@ -28,7 +28,7 @@ services:
         - CMD
         - /app/.venv/bin/python
         - -c
-        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:7860/', timeout=5)"
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5335/health', timeout=5)"
       interval: 30s
       timeout: 10s
       retries: 5

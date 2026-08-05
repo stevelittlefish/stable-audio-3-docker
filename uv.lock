@@ -2910,6 +2910,13 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+api = [
+    { name = "accelerate" },
+    { name = "fastapi" },
+    { name = "matplotlib" },
+    { name = "python-multipart" },
+    { name = "uvicorn" },
+]
 lora = [
     { name = "dill" },
     { name = "pytorch-lightning" },
@@ -2928,15 +2935,19 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "accelerate", marker = "extra == 'api'", specifier = ">=1.13.0" },
     { name = "accelerate", marker = "extra == 'ui'", specifier = ">=1.13.0" },
     { name = "dill", marker = "extra == 'lora'", specifier = ">=0.4.1" },
     { name = "einops", specifier = ">=0.8.2" },
     { name = "einops-exts", specifier = ">=0.0.4" },
+    { name = "fastapi", marker = "extra == 'api'", specifier = ">=0.110.0" },
     { name = "gradio", marker = "extra == 'ui'", specifier = "==6.3.0" },
     { name = "huggingface-hub", specifier = ">=1.7.1" },
+    { name = "matplotlib", marker = "extra == 'api'", specifier = ">=3.10.8" },
     { name = "matplotlib", marker = "extra == 'ui'", specifier = ">=3.10.8" },
     { name = "numpy", specifier = ">=2.2.6" },
     { name = "packaging", specifier = ">=26.0" },
+    { name = "python-multipart", marker = "extra == 'api'", specifier = ">=0.0.9" },
     { name = "pytorch-lightning", marker = "extra == 'lora'", specifier = "==2.5.5" },
     { name = "safetensors", specifier = ">=0.7.0" },
     { name = "soundfile", specifier = ">=0.13.1" },
@@ -2946,8 +2957,9 @@ requires-dist = [
     { name = "torchaudio", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'", specifier = "==2.7.1", index = "https://download.pytorch.org/whl/cu126" },
     { name = "tqdm", specifier = ">=4.67.3" },
     { name = "transformers", specifier = ">=5.8.0" },
+    { name = "uvicorn", marker = "extra == 'api'", specifier = ">=0.27.0" },
 ]
-provides-extras = ["ui", "lora"]
+provides-extras = ["api", "ui", "lora"]
 
 [package.metadata.requires-dev]
 dev = [

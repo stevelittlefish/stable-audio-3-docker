@@ -146,13 +146,143 @@ the roughly 10 GB model download is visible on the host and reused when the
 container is rebuilt. Hugging Face Xet high-performance mode is enabled for the
 initial download. Generated working files are mounted at `./outputs`.
 
-The UI is published on port `7860` on every server interface for direct LAN
-access. Open <http://seaslug:7860> from another machine on the network. Stop the
-service with:
+The REST API is published on port `5335` on every server interface for direct
+LAN access (this fork replaces the Gradio UI with a headless API — see
+[REST API](#rest-api) below). Interactive docs are at
+<http://seaslug:5335/docs>. Stop the service with:
 
 ```bash
 docker compose down
 ```
+
+## REST API
+
+This fork serves a headless FastAPI service (`run_api.py`) in place of the
+Gradio UI. It exposes every generation workflow — text-to-audio, init-audio
+variation, inpainting, per-LoRA control, batch, output transcoding and
+spectrograms — over an HTTP job queue. The Gradio prompt assistant is not
+included.
+
+Generation is asynchronous: submit a job, poll for its state, then download the
+result. Requests are processed one at a time by a single worker (the model is
+not thread-safe and the GPU runs serially).
+
+### Endpoints
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/health` | Liveness (no auth) |
+| `GET` | `/v1/model` | Loaded model, sample rate, max duration, defaults, LoRAs |
+| `POST` | `/v1/generate` | Submit a job (`multipart/form-data`) → `{job_id, state}` |
+| `GET` | `/v1/jobs` | List all jobs |
+| `GET` | `/v1/jobs/{id}` | Job state and outputs |
+| `GET` | `/v1/jobs/{id}/audio?index=N` | Download rendered clip `N` (default 0) |
+| `GET` | `/v1/jobs/{id}/spectrogram?index=N` | Download clip `N`'s spectrogram PNG |
+| `DELETE` | `/v1/jobs/{id}` | Delete a job and its files |
+
+Interactive OpenAPI docs (with a "try it out" button) are at `/docs`.
+
+### Submitting a job
+
+`POST /v1/generate` always takes `multipart/form-data` with a `params` field
+holding a JSON-encoded request, plus optional `init_audio` / `inpaint_audio`
+file parts. Only `prompt` is required; unset knobs resolve to the model's
+objective-dependent defaults.
+
+```bash
+# submit  ->  {"job_id":"a1b2c3...","state":"queued"}
+curl -s -F 'params={"prompt":"deep dub techno, rolling bassline","seconds_total":30}' \
+  http://seaslug:5335/v1/generate
+
+# poll    ->  state: queued -> running -> succeeded
+curl -s http://seaslug:5335/v1/jobs/a1b2c3...
+
+# download
+curl -o out.wav http://seaslug:5335/v1/jobs/a1b2c3.../audio
+curl -o spec.png http://seaslug:5335/v1/jobs/a1b2c3.../spectrogram
+```
+
+A shell helper that submits, waits, and downloads:
+
+```bash
+gen() {
+  id=$(curl -s -F "params=$1" http://seaslug:5335/v1/generate \
+       | grep -o '"job_id":"[^"]*"' | cut -d'"' -f4)
+  echo "job $id"
+  while :; do
+    s=$(curl -s http://seaslug:5335/v1/jobs/$id \
+        | grep -o '"state":"[^"]*"' | head -1 | cut -d'"' -f4)
+    echo "  $s"
+    [ "$s" = succeeded ] && break
+    [ "$s" = failed ] && { curl -s http://seaslug:5335/v1/jobs/$id; return 1; }
+    sleep 2
+  done
+  curl -s -o "$id.wav" http://seaslug:5335/v1/jobs/$id/audio && echo "  -> $id.wav"
+}
+
+gen '{"prompt":"ambient pad, warm analog","seconds_total":60}'
+```
+
+### Workflows
+
+**Text-to-audio with parameters** (all optional):
+
+```bash
+-F 'params={"prompt":"funk bassline","negative_prompt":"vocals",
+            "seconds_total":30,"steps":100,"cfg_scale":7,"seed":42,
+            "sampler_type":"dpmpp-3m-sde","file_format":"mp3 320k"}'
+```
+
+**Init-audio variation** — upload a seed clip; `init_noise_level` ranges from
+`0.01` (tiny change) to `1.0` (ignore the seed):
+
+```bash
+curl -F 'params={"prompt":"same groove, more energy","init_noise_level":0.7}' \
+     -F 'init_audio=@seed.wav' \
+     http://seaslug:5335/v1/generate
+```
+
+**Inpainting** — regenerate regions (in seconds) of an uploaded clip:
+
+```bash
+curl -F 'params={"prompt":"guitar solo","inpaint_mask_starts":[8],"inpaint_mask_ends":[16]}' \
+     -F 'inpaint_audio=@song.wav' \
+     http://seaslug:5335/v1/generate
+```
+
+**Batch** — `"batch_size":4` renders four clips; the job's `outputs` lists each
+with its own `seed`. Fetch by index: `/v1/jobs/{id}/audio?index=0..3`.
+
+**LoRA** — only when the container was started with `--lora-ckpt-path`.
+`GET /v1/model` lists loaded adapters; pass one `loras` entry per adapter:
+
+```json
+{"prompt":"...","loras":[{"strength":1.0,"interval_min":0.0,"interval_max":1.0,"layer_filter":""}]}
+```
+
+### Request fields
+
+`prompt` (required), `negative_prompt`, `seconds_total`, `steps`, `cfg_scale`,
+`sampler_type`, `sigma_max`, `seed` (`-1` = random; the resolved value is
+reported per output), `batch_size`, `cfg_interval_min`/`cfg_interval_max`,
+`cfg_rescale`, `cfg_norm_threshold`, `apg_scale`, `duration_padding_sec`,
+`cut_to_seconds_total`, `file_format`, `return_spectrogram`, `init_noise_level`,
+`inpaint_mask_starts`/`inpaint_mask_ends`, `dist_shift`, `loras`. See
+`stable_audio_3/api/schemas.py` for types and defaults.
+
+`file_format` accepts: `wav`, `flac`, `mp3 320k`, `mp3 v0`, `mp3 128k`,
+`m4a aac_he_v2 64k`, `m4a aac_he_v2 32k`.
+
+### Authentication
+
+Auth is off by default. Set `SAO_API_KEY` in the container environment to
+require it; then send `Authorization: Bearer <key>` (or `X-API-Key: <key>`) on
+every request except `/health`.
+
+### Not included
+
+The prompt assistant (dropped by design), RF-inversion (unimplemented in the
+inference path), and step-preview streaming (needs a streaming transport).
 
 ## Usage
 
