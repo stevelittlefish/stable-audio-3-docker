@@ -143,7 +143,8 @@ docker compose logs -f stable-audio-3
 
 The model cache is kept on the server at `/srv/stable-audio-3/huggingface`, so
 the roughly 10 GB model download is visible on the host and reused when the
-container is rebuilt. Generated working files are mounted at `./outputs`.
+container is rebuilt. Hugging Face Xet high-performance mode is enabled for the
+initial download. Generated working files are mounted at `./outputs`.
 
 The UI is deliberately published only on the server's loopback interface. From
 another machine, create an SSH tunnel:
