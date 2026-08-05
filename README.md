@@ -126,6 +126,38 @@ This starts a local web interface with a shareable link. To load a LoRA checkpoi
 uv run python run_gradio.py --model medium --lora-ckpt-path path/to/lora.ckpt
 ```
 
+### Personal Docker deployment (RTX 3090 GPU 1)
+
+This fork includes a deployment pinned to GPU index `1`, the second RTX 3090 on
+`seaslug`. The container cannot access the other three GPUs.
+
+Before the first start, accept the terms for
+[`stabilityai/stable-audio-3-medium`](https://huggingface.co/stabilityai/stable-audio-3-medium)
+using your Hugging Face account, then export a read-only token from that account:
+
+```bash
+export HF_TOKEN=hf_your_token_here
+docker compose up -d --build
+docker compose logs -f stable-audio-3
+```
+
+The model cache is kept in the `stable-audio-3-hf-cache` Docker volume, so the
+roughly 10 GB model download is reused when the container is rebuilt. Generated
+working files are mounted at `./outputs`.
+
+The UI is deliberately published only on the server's loopback interface. From
+another machine, create an SSH tunnel:
+
+```bash
+ssh -L 7860:127.0.0.1:7860 steve@seaslug
+```
+
+Then open <http://127.0.0.1:7860>. Stop the service with:
+
+```bash
+docker compose down
+```
+
 ## Usage
 
 Stable Audio 3 supports several inference modes. For full details, see [Inference Methods](docs/workflows/inference.md).

@@ -30,7 +30,9 @@ def main(args):
     )
     interface.queue()
     interface.launch(
-        share=True,
+        server_name="0.0.0.0",
+        server_port=7860,
+        share=False,
         js=getattr(interface, "_sao_js", None),
         theme=getattr(interface, "_sao_theme", None),
     )
