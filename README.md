@@ -146,14 +146,9 @@ the roughly 10 GB model download is visible on the host and reused when the
 container is rebuilt. Hugging Face Xet high-performance mode is enabled for the
 initial download. Generated working files are mounted at `./outputs`.
 
-The UI is deliberately published only on the server's loopback interface. From
-another machine, create an SSH tunnel:
-
-```bash
-ssh -L 7860:127.0.0.1:7860 steve@seaslug
-```
-
-Then open <http://127.0.0.1:7860>. Stop the service with:
+The UI is published on port `7860` on every server interface for direct LAN
+access. Open <http://seaslug:7860> from another machine on the network. Stop the
+service with:
 
 ```bash
 docker compose down
