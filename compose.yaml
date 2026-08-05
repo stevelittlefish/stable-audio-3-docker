@@ -12,7 +12,7 @@ services:
       HF_TOKEN: "${HF_TOKEN:?Set HF_TOKEN to a Hugging Face token with access to stabilityai/stable-audio-3-medium}"
       HF_HOME: /cache/huggingface
     volumes:
-      - stable-audio-3-hf-cache:/cache/huggingface
+      - /srv/stable-audio-3/huggingface:/cache/huggingface
       - ./outputs:/app/outputs
     gpus:
       - driver: nvidia
@@ -32,7 +32,3 @@ services:
       timeout: 10s
       retries: 5
       start_period: 20m
-
-volumes:
-  stable-audio-3-hf-cache:
-    name: stable-audio-3-hf-cache
