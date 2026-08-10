@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Training a Nu-Metal LoRA for Stable Audio 3</title>
+<style>
+  :root {
+    --bg: #f7f6f3;
+    --panel: #ffffff;
+    --ink: #1c1b1a;
+    --muted: #6b6862;
+    --line: #e3e0d8;
+    --accent: #c2410c;
+    --accent-soft: #fbe8dd;
+    --code-bg: #f2efe9;
+    --code-ink: #3a3733;
+    --ok: #15803d;
+    --ok-soft: #e4f2e8;
+    --warn: #b45309;
+    --warn-soft: #fbeecf;
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    --sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #161513;
+      --panel: #201f1c;
+      --ink: #eceae4;
+      --muted: #9c988e;
+      --line: #33312c;
+      --accent: #fb923c;
+      --accent-soft: #3a2416;
+      --code-bg: #191815;
+      --code-ink: #d6d2c8;
+      --ok: #4ade80;
+      --ok-soft: #16301f;
+      --warn: #fbbf24;
+      --warn-soft: #33270f;
+    }
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--sans);
+    line-height: 1.65;
+    font-size: 17px;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 0 24px 120px; }
+
+  header.hero {
+    padding: 72px 0 40px;
+    border-bottom: 1px solid var(--line);
+    margin-bottom: 48px;
+  }
+  .kicker {
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: .18em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0 0 18px;
+  }
+  header.hero h1 {
+    font-size: clamp(2rem, 5vw, 3rem);
+    line-height: 1.08;
+    letter-spacing: -0.02em;
+    margin: 0 0 18px;
+    font-weight: 800;
+  }
+  header.hero p.lede {
+    font-size: 1.18rem;
+    color: var(--muted);
+    margin: 0;
+    max-width: 62ch;
+  }
+
+  h2 {
+    font-size: 1.55rem;
+    letter-spacing: -0.01em;
+    margin: 64px 0 10px;
+    padding-top: 14px;
+    font-weight: 750;
+  }
+  h2 .num {
+    font-family: var(--mono);
+    font-size: .9rem;
+    color: var(--accent);
+    background: var(--accent-soft);
+    padding: 3px 9px;
+    border-radius: 6px;
+    margin-right: 12px;
+    vertical-align: middle;
+    font-weight: 600;
+  }
+  h3 { font-size: 1.15rem; margin: 34px 0 8px; font-weight: 700; }
+  p { margin: 14px 0; }
+  a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+  strong { font-weight: 700; }
+  ul, ol { padding-left: 24px; }
+  li { margin: 7px 0; }
+
+  code {
+    font-family: var(--mono);
+    font-size: .86em;
+    background: var(--code-bg);
+    color: var(--code-ink);
+    padding: 2px 6px;
+    border-radius: 5px;
+  }
+  pre {
+    background: var(--code-bg);
+    color: var(--code-ink);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 18px 20px;
+    overflow-x: auto;
+    font-family: var(--mono);
+    font-size: 14px;
+    line-height: 1.6;
+    margin: 18px 0;
+  }
+  pre code { background: none; padding: 0; font-size: inherit; }
+  .cmt { color: var(--muted); }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 20px 0;
+    font-size: 15px;
+  }
+  th, td { text-align: left; padding: 11px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-weight: 700; color: var(--ink); border-bottom: 2px solid var(--line); }
+  td code { white-space: nowrap; }
+  .tablewrap { overflow-x: auto; }
+
+  .callout {
+    border-radius: 10px;
+    padding: 16px 20px;
+    margin: 22px 0;
+    border: 1px solid var(--line);
+    background: var(--panel);
+  }
+  .callout .tag {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    font-weight: 700;
+    display: inline-block;
+    margin-bottom: 4px;
+  }
+  .callout.tip { background: var(--ok-soft); border-color: transparent; }
+  .callout.tip .tag { color: var(--ok); }
+  .callout.warn { background: var(--warn-soft); border-color: transparent; }
+  .callout.warn .tag { color: var(--warn); }
+  .callout p { margin: 4px 0; }
+  .callout p:first-of-type { margin-top: 0; }
+  .callout p:last-child { margin-bottom: 0; }
+
+  /* pipeline */
+  .pipe {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: stretch;
+    gap: 8px;
+    margin: 26px 0;
+  }
+  .pipe .stage {
+    flex: 1 1 130px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 14px;
+    position: relative;
+  }
+  .pipe .stage .n {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--accent);
+    font-weight: 700;
+  }
+  .pipe .stage .t { font-weight: 700; font-size: 15px; margin: 4px 0 3px; }
+  .pipe .stage .w { font-size: 12.5px; color: var(--muted); font-family: var(--mono); }
+  .pipe .arrow { align-self: center; color: var(--muted); font-size: 20px; }
+  @media (max-width: 620px) {
+    .pipe { flex-direction: column; }
+    .pipe .arrow { transform: rotate(90deg); }
+  }
+
+  .toc {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 22px 26px;
+    margin: 8px 0 40px;
+  }
+  .toc h4 { margin: 0 0 12px; font-size: 13px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); font-family: var(--mono); }
+  .toc ol { margin: 0; padding-left: 20px; columns: 2; column-gap: 40px; }
+  .toc li { margin: 6px 0; }
+  .toc a { text-decoration: none; }
+  .toc a:hover { text-decoration: underline; }
+  @media (max-width: 620px) { .toc ol { columns: 1; } }
+
+  footer {
+    margin-top: 72px;
+    padding-top: 24px;
+    border-top: 1px solid var(--line);
+    color: var(--muted);
+    font-size: 14px;
+  }
+  .pill {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 12px;
+    background: var(--code-bg);
+    border: 1px solid var(--line);
+    border-radius: 20px;
+    padding: 2px 10px;
+    color: var(--muted);
+  }
+  hr { border: none; border-top: 1px solid var(--line); margin: 40px 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <p class="kicker">Stable Audio 3 · Internal Guide</p>
+  <h1>Training a Nu-Metal LoRA for Backing Tracks</h1>
+  <p class="lede">A start-to-finish pipeline for building a Limp&nbsp;Bizkit–inspired style adapter — from raw songs, through vocal stripping and labeling, to training on the 3090 and serving it from the FastAPI inference server.</p>
+</header>
+
+<div class="toc">
+  <h4>Contents</h4>
+  <ol>
+    <li><a href="#bigpicture">The big picture</a></li>
+    <li><a href="#hardware">Hardware &amp; the 3090</a></li>
+    <li><a href="#dataset">Building the dataset</a></li>
+    <li><a href="#stems">Stripping vocals</a></li>
+    <li><a href="#clipping">Clipping &amp; curation</a></li>
+    <li><a href="#labeling">Labeling</a></li>
+    <li><a href="#training">Training</a></li>
+    <li><a href="#serving">Serving from FastAPI</a></li>
+    <li><a href="#cheatsheet">Cheat sheet</a></li>
+  </ol>
+</div>
+
+<!-- ============================================================= -->
+<h2 id="bigpicture"><span class="num">01</span>The big picture</h2>
+
+<p>A LoRA is a small <code>.safetensors</code> file (~50–200&nbsp;MB) that adapts a frozen base model to a target style. You're not retraining Stable Audio 3 — you're teaching it one consistent sound and getting a swappable, strength-adjustable adapter out the other end.</p>
+
+<p>The critical insight for this project: <strong>the three stages don't share a runtime.</strong> Only the <code>.safetensors</code> file crosses between them, so training stays completely decoupled from your inference container.</p>
+
+<div class="pipe">
+  <div class="stage">
+    <div class="n">STAGE 1</div>
+    <div class="t">Prep dataset</div>
+    <div class="w">stem service (GPU&nbsp;1)</div>
+  </div>
+  <div class="arrow">→</div>
+  <div class="stage">
+    <div class="n">STAGE 2</div>
+    <div class="t">Train LoRA</div>
+    <div class="w">Underfit (3090)</div>
+  </div>
+  <div class="arrow">→</div>
+  <div class="stage">
+    <div class="n">STAGE 3</div>
+    <div class="t">Serve LoRA</div>
+    <div class="w">FastAPI (GPU&nbsp;1)</div>
+  </div>
+</div>
+
+<div class="tablewrap">
+<table>
+  <thead><tr><th>Stage</th><th>Where</th><th>GPU</th><th>In Docker?</th></tr></thead>
+  <tbody>
+    <tr><td>Build &amp; label dataset</td><td>Anywhere on the LAN</td><td>Uses the stem service</td><td>No</td></tr>
+    <tr><td>Train the LoRA</td><td>Server</td><td><strong>Dedicated 3090</strong></td><td><strong>No — standalone</strong></td></tr>
+    <tr><td>Serve the LoRA</td><td>Existing SA3 container</td><td>GPU 1 (already running)</td><td>Yes — just a flag</td></tr>
+  </tbody>
+</table>
+</div>
+
+<p>The training tool is <a href="https://github.com/dada-bots/underfit">Underfit</a> (Dadabots) — a web dashboard built on this same stack. It gives you dataset encoding, live loss curves, auto-resume, and demo generation for free. It swallows the whole training step so there's <em>no GUI to build</em>. It does <strong>not</strong> replace your stem service (prep) or your FastAPI server (serving) — those are yours.</p>
+
+<!-- ============================================================= -->
+<h2 id="hardware"><span class="num">02</span>Hardware &amp; the 3090</h2>
+
+<p>A dedicated RTX 3090 is more than enough, and dedicating it cleanly avoids fighting your inference services for VRAM.</p>
+
+<div class="tablewrap">
+<table>
+  <thead><tr><th>Concern</th><th>Requirement</th><th>3090 (24&nbsp;GB, Ampere)</th></tr></thead>
+  <tbody>
+    <tr><td>VRAM</td><td><code>medium-base</code> needs ~6.5&nbsp;GB; Underfit floor 8&nbsp;GB</td><td>✅ 3–4× headroom</td></tr>
+    <tr><td>bf16 training</td><td>Required (SA3 trains in bfloat16)</td><td>✅ native on Ampere</td></tr>
+    <tr><td>Flash Attention 2</td><td>Required by <code>medium</code></td><td>✅ supports Ampere — install a prebuilt wheel</td></tr>
+    <tr><td>CUDA / PyTorch</td><td>torch 2.7.1, CUDA 12.6 default</td><td>✅ works with any modern CUDA</td></tr>
+  </tbody>
+</table>
+</div>
+
+<p>Because you have so much headroom, you can skip every low-VRAM compromise: train at full precision (no <code>--base_precision bf16</code>), use standard <code>dora-rows</code> (no need for <code>lora-xs</code>), and push rank higher (16&nbsp;→&nbsp;32) or batch size above 1 for steadier convergence.</p>
+
+<div class="callout warn">
+  <span class="tag">One setup gotcha</span>
+  <p>Flash Attention 2 must be installed. Don't compile it — grab a prebuilt wheel matching your CUDA / torch / Python from the <a href="https://github.com/mjun0812/flash-attention-prebuild-wheels">community wheels repo</a>. The filename encodes the requirements (e.g. <code>cu126torch2.7-cp310</code>). Everything else in the stack is stock.</p>
+</div>
+
+<!-- ============================================================= -->
+<h2 id="dataset"><span class="num">03</span>Building the dataset</h2>
+
+<p>This is a <em>style adapter</em>, not a from-scratch model, so you need dozens of clips, not thousands.</p>
+
+<ul>
+  <li><strong>Core (Limp Bizkit):</strong> lean on the <em>Significant Other</em> / <em>Chocolate Starfish</em> era where the sound is most defined — downtuned 7-string chug, funk-metal slap bass, DJ scratches, groove drumming.</li>
+  <li><strong>Support (other nu-metal):</strong> mix in Korn, Deftones, P.O.D., Staind, etc. This stops a small pure-Bizkit set from memorizing specific riffs and helps the adapter <em>generalize</em> the style.</li>
+  <li><strong>Target:</strong> ~30–60 instrumental clips total. A LoRA learns whatever is <em>consistent</em> across the set, so curate for one coherent sound.</li>
+</ul>
+
+<div class="callout tip">
+  <span class="tag">The golden rule for backing tracks</span>
+  <p>A LoRA learns whatever is consistent in the audio. Feed it full tracks and <strong>it learns the vocals too</strong> — then tries to render vocal-like noise into your instrumentals. For backing tracks, the training set must <em>be</em> instrumental. That's what Stage&nbsp;03½ is for.</p>
+</div>
+
+<!-- ============================================================= -->
+<h2 id="stems"><span class="num">03½</span>Stripping vocals (LAN stem service)</h2>
+
+<p>Run every source track through your <span class="pill">stem-separation-docker</span> service first. Its <code>two-stem</code> mode returns exactly the <code>no_vocals</code> instrumental you want. It mirrors the SA3 submit → poll → download API shape.</p>
+
+<pre><code><span class="cmt"># 1. submit — two-stem gives vocals + no_vocals (instrumental)</span>
+curl -s -F 'audio=@song.wav' \
+     -F 'params={"mode":"two-stem","file_format":"wav","shifts":2}' \
+     http://ai.lemon.com:5336/v1/separate
+<span class="cmt"># -> {"job_id":"...","state":"queued"}</span>
+
+<span class="cmt"># 2. poll until state is done</span>
+curl -s http://ai.lemon.com:5336/v1/jobs/&lt;id&gt;
+
+<span class="cmt"># 3. download the instrumental stem</span>
+curl -o instrumental.wav \
+     "http://ai.lemon.com:5336/v1/jobs/&lt;id&gt;/stem/no_vocals"</code></pre>
+
+<p><code>shifts</code> (1–10) trades speed for cleaner separation; <code>2</code> is a good balance, bump it if vocal artifacts bleed through. If you've set <code>SEP_API_KEY</code>, add <code>-H "Authorization: Bearer &lt;key&gt;"</code> (it's off by default).</p>
+
+<!-- ============================================================= -->
+<h2 id="clipping"><span class="num">04</span>Clipping &amp; curation</h2>
+
+<p>The training loader takes a <strong>random fixed-length crop</strong> of each file every time it's sampled, and there is <strong>one caption per file</strong>. That single fact decides how you clip.</p>
+
+<h3>Hand-built sections beat whole tracks</h3>
+<ul>
+  <li><strong>One caption is stretched across the whole file.</strong> Feed a whole song and your caption gets applied to random crops that may land on the intro, a quiet breakdown, or an outro — the model learns a blurry average.</li>
+  <li><strong>Whole tracks smuggle in filler</strong> — silence, transitions, key changes — all trained under the same label. On a 30–60 clip set that dilution really shows.</li>
+  <li><strong>Sections let you curate for strength</strong> and label accurately, so you can later steer between "verse groove" and "breakdown" because the model learned them as distinct.</li>
+</ul>
+
+<div class="callout tip">
+  <span class="tag">Recommended shape</span>
+  <p><strong>Core (Bizkit):</strong> hand-cut 15–30 strong ~20–40s sections, each labeled for what it <em>is</em> (verse groove / chorus riff / breakdown).<br>
+  <strong>Support (other nu-metal):</strong> auto-chunk into ~30s pieces with lighter labeling.<br>
+  Everything runs through the stem service first, so it's all instrumental.</p>
+</div>
+
+<div class="callout warn">
+  <span class="tag">Minimum length</span>
+  <p>Clips must be <strong>at least</strong> as long as the training crop window, or they get padded and wasted. Confirm the exact <code>sample_size</code> the trainer uses and size your minimum clip length to match.</p>
+</div>
+
+<!-- ============================================================= -->
+<h2 id="labeling"><span class="num">05</span>Labeling</h2>
+
+<p>Each clip needs a matching <code>.txt</code> caption (Underfit can also read JSON sidecars or audio tags). Consistent vocabulary is what ties your <em>prompt</em> to the <em>sound</em> — pick a trigger phrase and reuse it in every caption.</p>
+
+<pre><code>clip01.txt → "nu-metal backing track, downtuned 7-string chug riff,
+              funky slap bass, hard groove drums, DJ scratches, 95 bpm"
+
+clip02.txt → "nu-metal backing track, half-time breakdown, palm-muted
+              guitar, heavy bass, aggressive groove, 80 bpm"</code></pre>
+
+<ul>
+  <li>Keep the trigger phrase (<code>nu-metal backing track</code>) in <strong>every</strong> caption — it becomes the phrase you prompt with later.</li>
+  <li>Vary the specifics (bpm, breakdown vs. verse, scratches present or not) so the model learns the <em>space</em>, not one riff.</li>
+  <li>Don't over-describe per-clip details you don't want memorized.</li>
+</ul>
+
+<div class="callout tip">
+  <span class="tag">Small-dataset tip</span>
+  <p>Exclude the duration conditioner during training (<code>--exclude seconds_total</code>) to prevent it being hijacked — a known small-dataset failure mode. Underfit exposes the same layer include/exclude controls.</p>
+</div>
+
+<!-- ============================================================= -->
+<h2 id="training"><span class="num">06</span>Training</h2>
+
+<h3>Option A — Underfit (recommended)</h3>
+<p>Stand it up on the server, pinned to the 3090. It handles encoding (audio → latents), the training loop, live loss curves, checkpointing, auto-resume across disconnects, and auto demo generation so you can hear it improving. Point it at your folder of instrumental, labeled clips.</p>
+<ul>
+  <li>Pin it to the 3090 (e.g. <code>CUDA_VISIBLE_DEVICES=&lt;3090-index&gt;</code>) so it never touches the inference card.</li>
+  <li>Base model: <code>medium</code>. Adapter: <strong>DoRA</strong> (its recommended default). Rank 16–32.</li>
+  <li>Make sure checkpoints land somewhere the SA3 container can read — see Stage 07.</li>
+</ul>
+
+<h3>Option B — the built-in CLI</h3>
+<p>If you'd rather skip the dashboard, this repo ships <code>scripts/train_lora.py</code>. Same output format, fully compatible with the server.</p>
+<pre><code>uv sync --extra lora   <span class="cmt"># one-time</span>
+
+uv run python scripts/train_lora.py \
+    --model medium-base \
+    --data_dir ./my_data \
+    --rank 16 \
+    --adapter_type dora-rows \
+    --exclude seconds_total \
+    --steps 1000 \
+    --save_dir ./lora_out</code></pre>
+<p>Start around 1000 steps, listen, iterate. Checkpoints drop every 500 steps into <code>save_dir</code>. Optional: pre-encode once with <code>scripts/pre_encode_dataset.py</code> to skip the autoencoder on re-runs.</p>
+
+<p><strong>Either way, the deliverable is the same:</strong> a <code>lora_stepNNN.safetensors</code> file.</p>
+
+<!-- ============================================================= -->
+<h2 id="serving"><span class="num">07</span>Serving from the FastAPI server</h2>
+
+<p>Your existing server supports LoRAs end-to-end — two touchpoints.</p>
+
+<h3>Load at startup</h3>
+<p><code>run_api.py</code> takes <code>--lora-ckpt-path</code> (one or many). Copy the <code>.safetensors</code> into a volume the container mounts, add the flag, and rebuild.</p>
+<pre><code>uv run python run_api.py --model medium \
+    --lora-ckpt-path /srv/loras/nu_metal.safetensors
+
+<span class="cmt"># in Docker: mount the file, add the flag, then —</span>
+docker compose up -d --build</code></pre>
+<div class="callout warn">
+  <span class="tag">Remember</span>
+  <p>Loaded adapters are <strong>fixed per process</strong> — swapping a LoRA means a restart. And always rebuild with <code>docker compose up -d --build</code> so you don't ship a stale image. <code>GET /v1/model</code> lists what's currently loaded.</p>
+</div>
+
+<h3>Control per request</h3>
+<p>Pass a <code>loras</code> array in the generate body — one entry per loaded adapter, in load order.</p>
+<pre><code>{
+  "prompt": "nu-metal backing track, downtuned chug riff, funk bass, 90 bpm",
+  "loras": [
+    { "strength": 0.8, "interval_min": 0.0, "interval_max": 1.0, "layer_filter": "" }
+  ]
+}</code></pre>
+<ul>
+  <li><code>strength</code> — <code>0</code> disables, <code>1.0</code> full, <code>&gt;1</code> amplifies. Start around <strong>0.7–1.0</strong>.</li>
+  <li><code>interval_min/max</code> — gate the LoRA to a slice of the denoising process (early = global structure, late = fine detail).</li>
+  <li><code>layer_filter</code> — disable named layers by substring.</li>
+</ul>
+<p>No vocals in the training set, no vocals out — you get a clean instrumental backing track from your trigger prompt.</p>
+
+<!-- ============================================================= -->
+<h2 id="cheatsheet"><span class="num">08</span>Cheat sheet</h2>
+
+<div class="tablewrap">
+<table>
+  <thead><tr><th>Step</th><th>Command / setting</th></tr></thead>
+  <tbody>
+    <tr><td>Strip vocals</td><td><code>POST /v1/separate</code> · <code>{"mode":"two-stem"}</code> → <code>no_vocals</code></td></tr>
+    <tr><td>Clip length</td><td>~20–40s sections, ≥ the training crop window</td></tr>
+    <tr><td>Caption trigger</td><td><code>nu-metal backing track, …</code> in every <code>.txt</code></td></tr>
+    <tr><td>Base model</td><td><code>medium</code> / <code>medium-base</code></td></tr>
+    <tr><td>Adapter · rank</td><td><code>dora-rows</code> · 16–32 (3090 has headroom)</td></tr>
+    <tr><td>Small-set flag</td><td><code>--exclude seconds_total</code></td></tr>
+    <tr><td>Training GPU</td><td>dedicated 3090 · <code>CUDA_VISIBLE_DEVICES</code></td></tr>
+    <tr><td>FA2</td><td>install prebuilt wheel matching CUDA/torch/Python</td></tr>
+    <tr><td>Serve</td><td><code>run_api.py --lora-ckpt-path …</code> → <code>docker compose up -d --build</code></td></tr>
+    <tr><td>Request control</td><td><code>loras: [{ strength: 0.8, … }]</code></td></tr>
+  </tbody>
+</table>
+</div>
+
+<div class="callout">
+  <span class="tag" style="color:var(--muted)">Note on source material</span>
+  <p>Training on commercial recordings for your own inspired/personal creative use is a normal home-studio workflow, but the resulting LoRA and its outputs sit in copyright grey territory. Keep it personal-use unless you clear samples.</p>
+</div>
+
+<footer>
+  <p><strong>Pipeline recap:</strong> stem service → clip &amp; label → Underfit (3090) → <code>.safetensors</code> → FastAPI.</p>
+  <p>Related: <a href="../workflows/lora.md">docs/workflows/lora.md</a> · <a href="../workflows/autoencoder.md">autoencoder.md</a> · <a href="https://github.com/dada-bots/underfit">Underfit</a> · <a href="../../README.md">project README</a></p>
+</footer>
+
+</div>
+</body>
+</html>
