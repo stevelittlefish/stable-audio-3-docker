@@ -32,7 +32,7 @@ services:
     gpus:
       - driver: nvidia
         device_ids:
-          - "1"
+          - "0"
         capabilities:
           - gpu
     shm_size: 8gb
