@@ -14,7 +14,7 @@ services:
       HF_XET_HIGH_PERFORMANCE: "1"
     volumes:
       - /srv/stable-audio-3/huggingface:/cache/huggingface
-      - ./outputs:/app/outputs
+      - /srv/stable-audio-3/outputs:/app/outputs
       # Finetune LoRAs, read-only. Stage keepers here (e.g. copy from
       # /srv/underfit/state/runs/<run>/step=*.safetensors) with clean names.
       - /srv/stable-audio-3/loras:/loras:ro
