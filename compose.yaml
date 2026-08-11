@@ -15,6 +15,20 @@ services:
     volumes:
       - /srv/stable-audio-3/huggingface:/cache/huggingface
       - ./outputs:/app/outputs
+      # Finetune LoRAs, read-only. Stage keepers here (e.g. copy from
+      # /srv/underfit/state/runs/<run>/step=*.safetensors) with clean names.
+      - /srv/stable-audio-3/loras:/loras:ro
+    # Override the Dockerfile CMD to load LoRAs at startup. `command` replaces
+    # CMD entirely, so --model medium is repeated here. Load ORDER sets each
+    # LoRA's index used in the /v1/generate `loras` array (first = index 0).
+    command:
+      - /app/.venv/bin/python
+      - /app/run_api.py
+      - --model
+      - medium
+      - --lora-ckpt-path
+      - /loras/limp-bizkit-4k.safetensors      # index 0
+      # - /loras/another-style.safetensors     # index 1 (uncomment to add more)
     gpus:
       - driver: nvidia
         device_ids:
