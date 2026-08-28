@@ -66,9 +66,13 @@ def load_diffusion_cond(
 ):
     model = create_diffusion_cond_from_config(model_config)
     copy_state_dict(model, load_file(ckpt_path))
-    model.to(device).eval().requires_grad_(False)
+    # Convert to fp16 while still on CPU, so the fp32 weights never occupy VRAM.
+    # Moving to CUDA first and halving afterwards leaves a full fp32-sized block
+    # stranded in the caching allocator (reported by nvidia-smi) until the first
+    # empty_cache() call — making startup VRAM look higher than steady state.
     if model_half:
         model.to(torch.float16)
+    model.to(device).eval().requires_grad_(False)
     return model
 
 

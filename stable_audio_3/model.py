@@ -59,6 +59,11 @@ class StableAudioModel:
         )
         model.use_lora = False
         model.lora_names = []
+        # Return the load-time allocator cache to the driver so reported VRAM
+        # matches steady state at startup, rather than only after the first
+        # request (which calls empty_cache() itself).
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
         return StableAudioModel(model, model_config, device, model_half)
 
     def load_lora(self, lora_ckpt_paths):
