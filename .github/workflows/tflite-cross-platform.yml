@@ -9,6 +9,11 @@ name: TFLite cross-platform
 
 on:
   push:
+    # Branches only. Without this, a tag push (e.g. a v* release) matches the
+    # push event and GitHub ignores the paths filter on tags — so this would
+    # fire on every release even though nothing under optimized/tflite changed.
+    branches:
+      - "**"
     paths:
       - "optimized/tflite/**"
       - ".github/workflows/tflite-cross-platform.yml"
