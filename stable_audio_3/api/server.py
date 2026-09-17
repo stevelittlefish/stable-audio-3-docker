@@ -21,30 +21,55 @@ from fastapi.responses import FileResponse
 from .generation import resolve_defaults
 from .schemas import (
     FILE_FORMATS,
+    Artifact,
     GenerateRequest,
     JobCreated,
     JobStatus,
     ModelInfo,
-    OutputItem,
 )
 from .worker import Job, JobManager
 
+# Map an output file extension to its real MIME type, so the contract's
+# `content_type` isn't a lie. Clips are audio, spectrograms are PNGs — ASS treats
+# content_type as authoritative and doesn't assume everything is audio/*.
+_CONTENT_TYPES = {
+    ".wav": "audio/wav",
+    ".flac": "audio/flac",
+    ".mp3": "audio/mpeg",
+    ".m4a": "audio/mp4",
+    ".png": "image/png",
+}
+
+
+def _content_type(path: str) -> str:
+    return _CONTENT_TYPES.get(Path(path).suffix.lower(), "application/octet-stream")
+
+
+def _artifact_paths(job: Job) -> "dict[str, str]":
+    """Flatten a job's outputs into {artifact_name -> on-disk path}.
+
+    One audio clip per batch element, plus its spectrogram PNG when present. The
+    artifact name is the file's basename, which is unique per job and is exactly
+    what /v1/jobs/{id}/result/{name} looks up.
+    """
+    paths: "dict[str, str]" = {}
+    for o in job.outputs:
+        for key in ("audio_path", "spectrogram_path"):
+            p = o.get(key)
+            if p:
+                paths[Path(p).name] = p
+    return paths
+
 
 def _to_status(job: Job, manager: JobManager) -> JobStatus:
-    outputs = [
-        OutputItem(
-            index=o["index"],
-            seed=o["seed"],
-            format=o["format"],
-            duration_seconds=o["duration_seconds"],
-            audio_url=f"/v1/jobs/{job.job_id}/audio?index={o['index']}",
-            spectrogram_url=(
-                f"/v1/jobs/{job.job_id}/spectrogram?index={o['index']}"
-                if o.get("spectrogram_path")
-                else None
-            ),
+    artifacts = [
+        Artifact(
+            name=name,
+            kind="metadata" if path.lower().endswith(".png") else "audio",
+            content_type=_content_type(path),
+            bytes=Path(path).stat().st_size if Path(path).exists() else 0,
         )
-        for o in job.outputs
+        for name, path in _artifact_paths(job).items()
     ]
     return JobStatus(
         job_id=job.job_id,
@@ -55,7 +80,7 @@ def _to_status(job: Job, manager: JobManager) -> JobStatus:
         finished_at=job.finished_at,
         queue_position=manager.queue_position(job.job_id),
         request=job.request,
-        outputs=outputs,
+        artifacts=artifacts,
     )
 
 
@@ -74,15 +99,31 @@ def create_app(model, model_name: str, output_root: Path, api_key: Optional[str]
 
     @app.get("/health")
     def health():
-        return {"status": "ok"}
+        # A parked backend is still "up" for readiness; it just has no weights on
+        # the GPU. ASS unparks it before sending work.
+        return {"status": "ok", "parked": manager.is_parked()}
 
-    @app.get("/v1/model", response_model=ModelInfo, dependencies=[Depends(require_key)])
+    # ASS's park/unpark: our fork's addition so ASS can free the GPU for another
+    # model without a full container restart (evict = "park"). No auth — same as
+    # /health, these are orchestrator-plane, not user-plane.
+    @app.post("/park")
+    def park():
+        manager.park()
+        return {"parked": True}
+
+    @app.post("/unpark")
+    def unpark():
+        manager.unpark()
+        return {"parked": False}
+
+    @app.get("/v1/info", response_model=ModelInfo, dependencies=[Depends(require_key)])
     def model_info():
         d = resolve_defaults(model)
         sr = model.model_config["sample_rate"]
         size = model.model_config["sample_size"]
         return ModelInfo(
             model=model_name,
+            parked=manager.is_parked(),
             sample_rate=sr,
             sample_size=size,
             max_duration_seconds=size / sr,
@@ -127,13 +168,15 @@ def create_app(model, model_name: str, output_root: Path, api_key: Optional[str]
             raise HTTPException(status_code=404, detail="Job not found.")
         return _to_status(job, manager)
 
-    @app.get("/v1/jobs/{job_id}/audio", dependencies=[Depends(require_key)])
-    def get_audio(job_id: str, index: int = 0):
-        return _output_file(manager, job_id, index, "audio_path")
-
-    @app.get("/v1/jobs/{job_id}/spectrogram", dependencies=[Depends(require_key)])
-    def get_spectrogram(job_id: str, index: int = 0):
-        return _output_file(manager, job_id, index, "spectrogram_path")
+    @app.get("/v1/jobs/{job_id}/result/{name}", dependencies=[Depends(require_key)])
+    def get_result(job_id: str, name: str):
+        job = manager.get(job_id)
+        if job is None:
+            raise HTTPException(status_code=404, detail="Job not found.")
+        path = _artifact_paths(job).get(name)
+        if not path or not Path(path).exists():
+            raise HTTPException(status_code=404, detail=f"Artifact {name!r} not available.")
+        return FileResponse(path, filename=Path(path).name)
 
     @app.delete("/v1/jobs/{job_id}", dependencies=[Depends(require_key)])
     def delete_job(job_id: str):
@@ -155,15 +198,3 @@ def _save_upload(upload: Optional[UploadFile]) -> Optional[str]:
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
         shutil.copyfileobj(upload.file, tmp)
         return tmp.name
-
-
-def _output_file(manager: JobManager, job_id: str, index: int, key: str) -> FileResponse:
-    job = manager.get(job_id)
-    if job is None:
-        raise HTTPException(status_code=404, detail="Job not found.")
-    if index < 0 or index >= len(job.outputs):
-        raise HTTPException(status_code=404, detail="Output index out of range.")
-    path = job.outputs[index].get(key)
-    if not path or not Path(path).exists():
-        raise HTTPException(status_code=404, detail="Requested file not available.")
-    return FileResponse(path, filename=Path(path).name)

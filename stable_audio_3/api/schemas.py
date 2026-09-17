@@ -105,15 +105,21 @@ class GenerateRequest(BaseModel):
     loras: Optional[List[LoraConfig]] = None
 
 
-class OutputItem(BaseModel):
-    """One rendered clip. A batch produces one item per batch element."""
+class Artifact(BaseModel):
+    """One named, typed output of a job — the ASS contract's unit of result.
 
-    index: int
-    seed: int
-    format: str
-    duration_seconds: float
-    audio_url: str
-    spectrogram_url: Optional[str] = None
+    A generation job yields one audio clip per batch element (and, if
+    ``return_spectrogram``, a PNG alongside each). ASS harvests these by name and
+    doesn't care what they are; ``content_type`` is the real MIME (audio for the
+    clips, image/png for the spectrograms — not everything is audio/*), ``bytes``
+    the on-disk size. Names are unique within the job (the on-disk filename:
+    ``output_0.wav``, ``spectrogram_0.png``, …).
+    """
+
+    name: str
+    kind: str  # advisory role for clients: audio | metadata | other
+    content_type: str
+    bytes: int
 
 
 class JobStatus(BaseModel):
@@ -125,7 +131,7 @@ class JobStatus(BaseModel):
     finished_at: Optional[float] = None
     queue_position: Optional[int] = None
     request: Optional[GenerateRequest] = None
-    outputs: List[OutputItem] = Field(default_factory=list)
+    artifacts: List[Artifact] = Field(default_factory=list)
 
 
 class JobCreated(BaseModel):
@@ -135,6 +141,9 @@ class JobCreated(BaseModel):
 
 class ModelInfo(BaseModel):
     model: str
+    # Whether ASS has parked us: weights on CPU, GPU freed. Still "up" for
+    # readiness — ASS unparks before sending work.
+    parked: bool = False
     sample_rate: int
     sample_size: int
     max_duration_seconds: float

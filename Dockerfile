@@ -7,6 +7,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     UV_LINK_MODE=copy \
     HF_HOME=/cache/huggingface \
+    TORCH_HOME=/cache/torch \
     GRADIO_ANALYTICS_ENABLED=False \
     TORCH_CUDA_ARCH_LIST=8.6
 
@@ -37,7 +38,7 @@ RUN uv pip install --python /app/.venv/bin/python \
 COPY . .
 RUN uv sync --frozen --extra api --no-dev --inexact
 
-RUN mkdir -p /app/outputs/jobs /cache/huggingface
+RUN mkdir -p /app/outputs/jobs /cache/huggingface /cache/torch
 
 WORKDIR /app/outputs
 EXPOSE 5335

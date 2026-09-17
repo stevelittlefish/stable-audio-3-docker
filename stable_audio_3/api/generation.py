@@ -258,6 +258,30 @@ def run_generation(
     return outputs
 
 
+def park_model(model) -> None:
+    """Move the weights off the GPU into CPU RAM and free the VRAM.
+
+    ASS's /park: the container stays alive with the whole diffusion model (DiT +
+    pretransform + conditioner) resident in system RAM, so a later /unpark is a
+    fast PCIe copy back rather than a cold reload of a multi-GB checkpoint.
+
+    empty_cache() is not optional — without it the freed tensors linger in
+    torch's caching allocator and the VRAM is never actually returned to the
+    driver, which is the entire point of parking. ``model.model`` is the
+    stable-audio-tools nn.Module (StableAudioModel wraps it); moving it moves
+    everything under it.
+    """
+    model.model.to("cpu")
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+    gc.collect()
+
+
+def unpark_model(model) -> None:
+    """Move the weights back onto the model's device (the reverse of park_model)."""
+    model.model.to(model.device)
+
+
 def _write_spectrogram(audio_i16: torch.Tensor, sample_rate: int, out_path: Path) -> Path:
     """Render a mel-spectrogram PNG. Imported lazily to keep matplotlib optional."""
     from stable_audio_3.interface.aeiou import audio_spectrogram_image

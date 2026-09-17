@@ -171,16 +171,45 @@ not thread-safe and the GPU runs serially).
 
 | Method | Path | Purpose |
 |---|---|---|
-| `GET` | `/health` | Liveness (no auth) |
-| `GET` | `/v1/model` | Loaded model, sample rate, max duration, defaults, LoRAs |
+| `GET` | `/health` | Liveness (no auth); reports `parked` |
+| `GET` | `/v1/info` | Loaded model, sample rate, max duration, defaults, LoRAs, `parked` |
 | `POST` | `/v1/generate` | Submit a job (`multipart/form-data`) → `{job_id, state}` |
 | `GET` | `/v1/jobs` | List all jobs |
-| `GET` | `/v1/jobs/{id}` | Job state and outputs |
-| `GET` | `/v1/jobs/{id}/audio?index=N` | Download rendered clip `N` (default 0) |
-| `GET` | `/v1/jobs/{id}/spectrogram?index=N` | Download clip `N`'s spectrogram PNG |
+| `GET` | `/v1/jobs/{id}` | Job state and `artifacts[]` |
+| `GET` | `/v1/jobs/{id}/result/{name}` | Download one named artifact |
 | `DELETE` | `/v1/jobs/{id}` | Delete a job and its files |
+| `POST` | `/park` | (orchestrator) move weights to CPU RAM, free the GPU |
+| `POST` | `/unpark` | (orchestrator) move weights back onto the GPU |
 
 Interactive OpenAPI docs (with a "try it out" button) are at `/docs`.
+
+### The ASS contract
+
+This service is an [ASS](https://github.com/stevelittlefish/AudioSlopServer)
+backend, so it speaks ASS's job envelope. A finished job enumerates its outputs
+as **artifacts** — one per file — instead of the old `outputs[]` / `audio_url`
+shape:
+
+```jsonc
+{
+  "job_id": "a1b2c3...",
+  "state": "succeeded",
+  "artifacts": [
+    { "name": "output_0.wav",      "kind": "audio",    "content_type": "audio/wav", "bytes": 5292044 },
+    { "name": "spectrogram_0.png", "kind": "metadata", "content_type": "image/png", "bytes": 81234 }
+  ]
+}
+```
+
+Each artifact's `name` is its filename; download it from
+`/v1/jobs/{id}/result/{name}`. A batch (`batch_size` > 1) yields
+`output_0.wav`, `output_1.wav`, … each with its spectrogram.
+
+`/park` + `/unpark` are ASS's addition (we fork the service, so we can): park
+moves the whole model — DiT, pretransform, conditioner — to CPU RAM and calls
+`torch.cuda.empty_cache()` so the VRAM actually returns to the driver, letting
+ASS hand the card to another backend without a cold container restart; unpark
+copies it back. Both are serialized against a running generation by a GPU lock.
 
 ### Submitting a job
 
@@ -197,9 +226,9 @@ curl -s -F 'params={"prompt":"deep dub techno, rolling bassline","seconds_total"
 # poll    ->  state: queued -> running -> succeeded
 curl -s http://seaslug:5335/v1/jobs/a1b2c3...
 
-# download
-curl -o out.wav http://seaslug:5335/v1/jobs/a1b2c3.../audio
-curl -o spec.png http://seaslug:5335/v1/jobs/a1b2c3.../spectrogram
+# download (names come from the job's artifacts[] list)
+curl -o out.wav  http://seaslug:5335/v1/jobs/a1b2c3.../result/output_0.wav
+curl -o spec.png http://seaslug:5335/v1/jobs/a1b2c3.../result/spectrogram_0.png
 ```
 
 A shell helper that submits, waits, and downloads:
@@ -217,7 +246,7 @@ gen() {
     [ "$s" = failed ] && { curl -s http://seaslug:5335/v1/jobs/$id; return 1; }
     sleep 2
   done
-  curl -s -o "$id.wav" http://seaslug:5335/v1/jobs/$id/audio && echo "  -> $id.wav"
+  curl -s -o "$id.wav" http://seaslug:5335/v1/jobs/$id/result/output_0.wav && echo "  -> $id.wav"
 }
 
 gen '{"prompt":"ambient pad, warm analog","seconds_total":60}'
@@ -250,11 +279,12 @@ curl -F 'params={"prompt":"guitar solo","inpaint_mask_starts":[8],"inpaint_mask_
      http://seaslug:5335/v1/generate
 ```
 
-**Batch** — `"batch_size":4` renders four clips; the job's `outputs` lists each
-with its own `seed`. Fetch by index: `/v1/jobs/{id}/audio?index=0..3`.
+**Batch** — `"batch_size":4` renders four clips; the job's `artifacts[]` lists
+each as `output_0.wav` … `output_3.wav` (plus spectrograms). Fetch by name:
+`/v1/jobs/{id}/result/output_0.wav`.
 
 **LoRA** — only when the container was started with `--lora-ckpt-path`.
-`GET /v1/model` lists loaded adapters; pass one `loras` entry per adapter:
+`GET /v1/info` lists loaded adapters; pass one `loras` entry per adapter:
 
 ```json
 {"prompt":"...","loras":[{"strength":1.0,"interval_min":0.0,"interval_max":1.0,"layer_filter":""}]}

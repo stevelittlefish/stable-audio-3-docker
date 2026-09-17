@@ -19,7 +19,7 @@ import uuid
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from .generation import load_audio_upload, run_generation
+from .generation import load_audio_upload, park_model, run_generation, unpark_model
 from .schemas import GenerateRequest, JobState
 
 
@@ -48,9 +48,34 @@ class JobManager:
         self._jobs: Dict[str, Job] = {}
         self._order: List[str] = []  # submission order, for queue_position
         self._lock = threading.Lock()
+        # The GPU is a single resource: a running generation and a park/unpark
+        # must never touch it at once. This lock serializes them. (ASS won't send
+        # work during a swap anyway — its lease guarantees it — but the backend
+        # shouldn't rely on a caller being well-behaved.)
+        self._gpu = threading.Lock()
+        self._parked = False
         self._queue: "queue.Queue[str]" = queue.Queue()
         self._thread = threading.Thread(target=self._run, name="sao-worker", daemon=True)
         self._thread.start()
+
+    def park(self) -> None:
+        """Move weights to CPU RAM and free the GPU. Idempotent."""
+        with self._gpu:
+            if self._parked:
+                return
+            park_model(self._model)
+            self._parked = True
+
+    def unpark(self) -> None:
+        """Move weights back onto the GPU. Idempotent."""
+        with self._gpu:
+            if not self._parked:
+                return
+            unpark_model(self._model)
+            self._parked = False
+
+    def is_parked(self) -> bool:
+        return self._parked
 
     def submit(self, request: GenerateRequest, init_audio_path=None, inpaint_audio_path=None) -> Job:
         job_id = uuid.uuid4().hex
@@ -113,7 +138,10 @@ class JobManager:
         try:
             init_audio = load_audio_upload(job.init_audio_path) if job.init_audio_path else None
             inpaint_audio = load_audio_upload(job.inpaint_audio_path) if job.inpaint_audio_path else None
-            outputs = run_generation(self._model, job.request, init_audio, inpaint_audio, job.job_dir)
+            # Hold the GPU for the duration so a concurrent /park can't yank the
+            # weights to CPU mid-generation.
+            with self._gpu:
+                outputs = run_generation(self._model, job.request, init_audio, inpaint_audio, job.job_dir)
             with self._lock:
                 job.outputs = outputs
                 job.state = JobState.succeeded

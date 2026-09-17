@@ -11,10 +11,16 @@ services:
     environment:
       HF_TOKEN: "${HF_TOKEN:?Set HF_TOKEN to a Hugging Face token with access to stabilityai/stable-audio-3-medium}"
       HF_HOME: /cache/huggingface
+      TORCH_HOME: /cache/torch
       HF_XET_HIGH_PERFORMANCE: "1"
     volumes:
-      - /srv/stable-audio-3/huggingface:/cache/huggingface
-      - /srv/stable-audio-3/outputs:/app/outputs
+      # Shared-cache convention: under ASS this same /cache is pointed at one host
+      # dir shared by every backend (/srv/ass/cache), so weights and the HF token
+      # are stored/written once across all services. Matched here so standalone
+      # runs share the same cache. (The HF token can also live at
+      # /srv/ass/cache/huggingface/token instead of the HF_TOKEN env above.)
+      - /srv/ass/cache:/cache
+      - /srv/ass/outputs/stableaudio:/app/outputs
       # Finetune LoRAs, read-only. Stage keepers here (e.g. copy from
       # /srv/underfit/state/runs/<run>/step=*.safetensors) with clean names.
       - /srv/stable-audio-3/loras:/loras:ro
