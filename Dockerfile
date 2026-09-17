@@ -8,6 +8,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
     UV_LINK_MODE=copy \
     HF_HOME=/cache/huggingface \
     TORCH_HOME=/cache/torch \
+    HF_TOKEN_PATH=/cache/hf-token \
     GRADIO_ANALYTICS_ENABLED=False \
     TORCH_CUDA_ARCH_LIST=8.6
 
