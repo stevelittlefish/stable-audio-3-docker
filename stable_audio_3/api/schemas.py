@@ -139,6 +139,18 @@ class JobCreated(BaseModel):
     state: JobState
 
 
+class VRAMStats(BaseModel):
+    """This process's GPU memory, in MB. peak_mb is the high-water mark since the
+    process started (torch.cuda.max_memory_allocated), so it captures the inference
+    peak even when ASS reads it after a job. cuda=False on a GPU-less box."""
+
+    cuda: bool = False
+    device: Optional[str] = None
+    allocated_mb: int = 0
+    reserved_mb: int = 0
+    peak_mb: int = 0
+
+
 class ModelInfo(BaseModel):
     model: str
     # Whether ASS has parked us: weights on CPU, GPU freed. Still "up" for
@@ -154,3 +166,4 @@ class ModelInfo(BaseModel):
     sampler_types: List[str]
     file_formats: List[str] = Field(default_factory=lambda: list(FILE_FORMATS))
     loras: List[str] = Field(default_factory=list)
+    vram: VRAMStats = Field(default_factory=VRAMStats)

@@ -26,7 +26,9 @@ from .schemas import (
     JobCreated,
     JobStatus,
     ModelInfo,
+    VRAMStats,
 )
+from .vram import vram_stats
 from .worker import Job, JobManager
 
 # Map an output file extension to its real MIME type, so the contract's
@@ -133,6 +135,7 @@ def create_app(model, model_name: str, output_root: Path, api_key: Optional[str]
             default_sampler_type=d["sampler_type"],
             sampler_types=d["sampler_types"],
             loras=list(getattr(model.model, "lora_names", []) or []),
+            vram=VRAMStats(**vram_stats()),
         )
 
     @app.post("/v1/generate", response_model=JobCreated, dependencies=[Depends(require_key)])
